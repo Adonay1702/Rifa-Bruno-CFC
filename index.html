@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="pt-pt">
+<html lang="pt-br">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -10,7 +10,7 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- Firebase do Adonay (Configurado) -->
+    <!-- Firebase do Adonay -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
@@ -34,19 +34,27 @@
 
         function App() {
             const [isAdmin, setIsAdmin] = useState(false);
+            const [adminTab, setAdminTab] = useState('lista'); // 'lista' ou 'pedidos'
+            
             const [showModal, setShowModal] = useState(false);
             const [password, setPassword] = useState('');
             const [loginError, setLoginError] = useState(false);
             const [searchTerm, setSearchTerm] = useState('');
             const [loading, setLoading] = useState(true);
             const [rifaData, setRifaData] = useState([]);
+            const [pedidosData, setPedidosData] = useState([]); // Nova lista de pedidos
             const [pixQty, setPixQty] = useState(1);
             const [copied, setCopied] = useState(false);
             const [db, setDb] = useState(null);
 
+            // Estados do formulário do cliente
+            const [formNome, setFormNome] = useState('');
+            const [formPhone, setFormPhone] = useState('');
+            const [formNumeros, setFormNumeros] = useState('');
+            const [pedidoEnviado, setPedidoEnviado] = useState(false);
+
             const ADMIN_PASS = "Mmaggott#7";
 
-            // As tuas chaves estão ligadas à tua conta Firebase
             const firebaseConfig = {
                 apiKey: "AIzaSyAo7vT9e2ZdqrRyAfTqKtUlYOWjp5TCSCA",
                 authDomain: "rifa-bruno-b814f.firebaseapp.com",
@@ -73,28 +81,35 @@
                             const firestore = getFirestore(app);
                             setDb(firestore);
 
-                            // Ouve as alterações na TUA base de dados
+                            // Ouve a lista principal da Rifa
                             const docRef = doc(firestore, 'rifa_dados', 'lista_oficial');
                             onSnapshot(docRef, (snap) => {
                                 if (snap.exists()) {
                                     setRifaData(snap.data().numeros);
                                 } else {
-                                    // Se estiver vazia, cria 50 números limpos
                                     const initial = Array.from({ length: 50 }, (_, i) => ({
                                         id: i + 1, nome: '', telefone: '', status: 'Pendente'
                                     }));
                                     setRifaData(initial);
                                 }
+                            });
+
+                            // Ouve a Caixa de Pedidos dos Clientes
+                            const pedidosRef = doc(firestore, 'rifa_dados', 'pedidos_clientes');
+                            onSnapshot(pedidosRef, (snap) => {
+                                if (snap.exists()) {
+                                    setPedidosData(snap.data().lista || []);
+                                } else {
+                                    setPedidosData([]);
+                                }
                                 setLoading(false);
                             });
                         }
                     } catch (err) {
-                        console.error("Erro a ligar à Nuvem: ", err);
+                        console.error("Erro Firebase: ", err);
                         setLoading(false);
                     }
                 };
-
-                // Aguarda que o Firebase carregue as ferramentas
                 setTimeout(initFirebase, 1000);
             }, []);
 
@@ -121,7 +136,7 @@
                         const { doc, setDoc } = window.FirebaseLib;
                         await setDoc(doc(db, 'rifa_dados', 'lista_oficial'), { numeros: newData });
                     } catch (e) {
-                        console.error("Erro ao gravar:", e);
+                        console.error(e);
                     }
                 }
             };
@@ -143,6 +158,56 @@
                 saveDataToCloud(newData);
             };
 
+            // ---- FUNÇÕES DO NOVO SISTEMA DE PEDIDOS ----
+            const enviarReserva = async () => {
+                if (!formNome || !formNumeros) {
+                    alert("Por favor, preencha o seu Nome e os Números desejados.");
+                    return;
+                }
+                
+                const novoPedido = {
+                    id: Date.now().toString(),
+                    nome: formNome,
+                    telefone: formPhone,
+                    numeros: formNumeros,
+                    data: new Date().toLocaleString('pt-BR')
+                };
+
+                const novaListaPedidos = [novoPedido, ...pedidosData];
+                setPedidosData(novaListaPedidos);
+
+                if (db && window.FirebaseLib) {
+                    try {
+                        const { doc, setDoc } = window.FirebaseLib;
+                        await setDoc(doc(db, 'rifa_dados', 'pedidos_clientes'), { lista: novaListaPedidos });
+                        setPedidoEnviado(true);
+                        setFormNome('');
+                        setFormPhone('');
+                        setFormNumeros('');
+                        // Esconde a mensagem de sucesso após 5 segundos
+                        setTimeout(() => setPedidoEnviado(false), 6000);
+                    } catch (e) {
+                        console.error("Erro ao enviar pedido:", e);
+                    }
+                }
+            };
+
+            const removerPedido = async (pedidoId) => {
+                if (!isAdmin) return;
+                const novaListaPedidos = pedidosData.filter(p => p.id !== pedidoId);
+                setPedidosData(novaListaPedidos);
+
+                if (db && window.FirebaseLib) {
+                    try {
+                        const { doc, setDoc } = window.FirebaseLib;
+                        await setDoc(doc(db, 'rifa_dados', 'pedidos_clientes'), { lista: novaListaPedidos });
+                    } catch (e) {
+                        console.error(e);
+                    }
+                }
+            };
+            // --------------------------------------------
+
             const copyPix = () => {
                 const text = PIX_CODES[pixQty];
                 const el = document.createElement("textarea");
@@ -163,7 +228,7 @@
                 return (
                     <div className="min-h-screen flex flex-col items-center justify-center bg-green-50">
                         <div className="w-12 h-12 border-4 border-green-600 border-t-transparent rounded-full animate-spin mb-4"></div>
-                        <p className="text-green-800 font-bold uppercase tracking-widest text-xs animate-pulse">A ligar ao servidor...</p>
+                        <p className="text-green-800 font-bold uppercase tracking-widest text-xs animate-pulse">Carregando Plataforma...</p>
                     </div>
                 );
             }
@@ -174,24 +239,25 @@
                         <div className="max-w-4xl mx-auto flex justify-between items-center">
                             <div className="flex items-center gap-4">
                                 <div className="relative">
-                                    <div className="w-16 h-16 rounded-full border-4 border-white shadow-lg overflow-hidden bg-white">
+                                    <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full border-4 border-white shadow-lg overflow-hidden bg-white">
                                         <img src="bruno.jpg" alt="Bruno" className="w-full h-full object-cover" onError={e => e.target.src = 'https://api.dicebear.com/7.x/initials/svg?seed=Bruno&backgroundColor=15803d'} />
                                     </div>
-                                    <div className="absolute -bottom-1 -right-1 bg-yellow-400 text-xs rounded-full p-1 border-2 border-white shadow-md">⚽</div>
+                                    <div className="absolute -bottom-1 -right-1 bg-yellow-400 text-[10px] sm:text-xs rounded-full p-1 border-2 border-white shadow-md">⚽</div>
                                 </div>
                                 <div>
-                                    <h1 className="text-xl font-black uppercase tracking-tighter leading-none">Rifa do Bruno</h1>
-                                    <p className="text-[10px] font-bold text-green-200 uppercase tracking-widest mt-1">Campinho FC</p>
+                                    <h1 className="text-lg sm:text-xl font-black uppercase tracking-tighter leading-none">Rifa do Bruno</h1>
+                                    <p className="text-[9px] sm:text-[10px] font-bold text-green-200 uppercase tracking-widest mt-1">Campinho FC</p>
                                 </div>
                             </div>
-                            <button onClick={() => isAdmin ? setIsAdmin(false) : setShowModal(true)} className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all shadow-md active:scale-95 ${isAdmin ? 'bg-red-500' : 'bg-green-600 border border-green-400'}`}>
+                            <button onClick={() => isAdmin ? setIsAdmin(false) : setShowModal(true)} className={`px-4 py-2.5 rounded-xl text-[9px] sm:text-[10px] font-black uppercase transition-all shadow-md active:scale-95 ${isAdmin ? 'bg-red-500' : 'bg-green-600 border border-green-400'}`}>
                                 {isAdmin ? 'Sair ADM' : 'Administrador'}
                             </button>
                         </div>
                     </header>
 
                     <main className="max-w-4xl mx-auto px-4 mt-8">
-                        {/* Painel de Estatísticas com Termos Atualizados */}
+                        
+                        {/* ESTATÍSTICAS */}
                         <div className="grid grid-cols-3 gap-3 mb-8 text-center">
                             <div className="bg-white p-4 rounded-3xl shadow-sm border-b-4 border-blue-500">
                                 <p className="text-[9px] font-black text-slate-400 uppercase mb-1 tracking-widest">Usados</p>
@@ -207,72 +273,167 @@
                             </div>
                         </div>
 
-                        {/* Pagamento */}
-                        <div className="pix-card text-white rounded-[2.5rem] p-6 sm:p-8 mb-8 shadow-2xl border border-slate-800">
-                            <h2 className="text-xs font-black uppercase tracking-[0.2em] text-teal-400 mb-6 flex items-center gap-2">
-                                <span className="w-2 h-2 bg-teal-400 rounded-full animate-pulse"></span> PIX Copia e Cola
-                            </h2>
-                            <p className="text-[10px] text-slate-500 font-bold uppercase mb-4 tracking-widest">Quantidade de números:</p>
-                            <div className="grid grid-cols-5 gap-2 mb-8">
-                                {[1, 2, 3, 4, 5].map(q => (
-                                    <button key={q} onClick={() => setPixQty(q)} className={`py-4 rounded-2xl font-black transition-all border-2 text-sm ${pixQty === q ? 'bg-teal-500 border-teal-300 text-white shadow-lg' : 'bg-slate-800 border-slate-700 text-slate-500'}`}>{q}</button>
-                                ))}
-                            </div>
-                            <div className="flex flex-col sm:flex-row justify-between items-center sm:items-end gap-6 bg-slate-800 p-6 rounded-[2rem] border border-slate-700 mb-4">
-                                <div className="text-center sm:text-left">
-                                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-1">Valor Total</p>
-                                    <p className="text-4xl font-black text-white">R$ {pixQty * 20},00</p>
-                                </div>
-                                <button onClick={copyPix} className={`w-full sm:w-auto px-8 py-5 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all shadow-xl active:scale-95 ${copied ? 'bg-green-500' : 'bg-teal-500 hover:bg-teal-400'}`}>
-                                    {copied ? 'Código Copiado!' : 'Copiar Código PIX'}
+                        {/* MENU DO ADMINISTRADOR */}
+                        {isAdmin && (
+                            <div className="flex gap-3 mb-8 animate-row">
+                                <button onClick={() => setAdminTab('lista')} className={`flex-1 py-3 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all ${adminTab === 'lista' ? 'bg-green-700 text-white shadow-lg' : 'bg-white text-slate-500 shadow-sm border border-slate-200'}`}>
+                                    Lista Oficial
+                                </button>
+                                <button onClick={() => setAdminTab('pedidos')} className={`flex-1 py-3 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all relative ${adminTab === 'pedidos' ? 'bg-slate-800 text-white shadow-lg' : 'bg-white text-slate-500 shadow-sm border border-slate-200'}`}>
+                                    Ver Pedidos 
+                                    {pedidosData.length > 0 && (
+                                        <span className="absolute -top-2 -right-2 bg-red-500 text-white w-6 h-6 rounded-full flex items-center justify-center text-[10px] border-2 border-white shadow-sm">
+                                            {pedidosData.length}
+                                        </span>
+                                    )}
                                 </button>
                             </div>
-                            <p className="text-[8px] text-center text-slate-500 font-bold uppercase tracking-[0.2em]">Copia o código acima e cola na área PIX do teu banco.</p>
-                        </div>
+                        )}
 
-                        {/* Pesquisa */}
-                        <div className="bg-white rounded-2xl shadow-sm p-4 mb-8 flex items-center gap-3 border border-slate-200">
-                            <span className="text-lg">🔍</span>
-                            <input type="text" placeholder="Pesquisar número ou nome..." className="w-full outline-none font-bold text-slate-600 text-sm placeholder:text-slate-300" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
-                        </div>
-
-                        {/* Lista de Rifa */}
-                        <div className="bg-white rounded-[2rem] shadow-xl overflow-hidden border border-slate-200">
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-left">
-                                    <thead className="bg-slate-50 border-b text-[10px] uppercase font-black text-slate-400 tracking-tighter">
-                                        <tr>
-                                            <th className="p-5 text-center w-16">Nº</th>
-                                            <th className="p-5">Comprador</th>
-                                            <th className="p-5">WhatsApp</th>
-                                            <th className="p-5 text-center">Status</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100">
-                                        {filtered.map(item => (
-                                            <tr key={item.id} className="animate-row hover:bg-slate-50/50">
-                                                <td className="p-4 text-center">
-                                                    <span className="inline-flex w-9 h-9 rounded-full bg-green-50 text-green-700 items-center justify-center font-black text-sm border border-green-100">{item.id}</span>
-                                                </td>
-                                                <td className="p-4">
-                                                    <input disabled={!isAdmin} className={`w-full bg-transparent outline-none font-bold text-sm ${isAdmin ? 'border-b-2 border-dashed border-slate-200 focus:border-green-500 py-1' : item.nome ? 'text-slate-800 uppercase' : 'text-slate-300 italic font-normal'}`} value={item.nome} placeholder={isAdmin ? "Nome..." : "Disponível"} onChange={e => updateField(item.id, 'nome', e.target.value)} />
-                                                </td>
-                                                <td className="p-4">
-                                                    <input disabled={!isAdmin} className={`w-full bg-transparent outline-none text-xs font-semibold ${isAdmin ? 'border-b-2 border-dashed border-slate-200 py-1' : 'text-slate-500'}`} value={item.telefone} placeholder={isAdmin ? "Telemóvel..." : "-"} onChange={e => updateField(item.id, 'telefone', e.target.value)} />
-                                                </td>
-                                                <td className="p-4 text-center">
-                                                    <button onClick={() => toggleStatus(item.id)} className={`min-w-[85px] py-2.5 rounded-2xl text-[9px] font-black uppercase tracking-widest transition-all shadow-sm ${!item.nome ? 'bg-slate-50 text-slate-200 border border-transparent' : item.status === 'Pago' ? 'bg-green-500 text-white border border-green-600' : 'bg-orange-50 text-orange-600 border border-orange-200'}`}>
-                                                        {item.status}
+                        {/* ---------------- ABA: PEDIDOS (SÓ ADM VÊ) ---------------- */}
+                        {isAdmin && adminTab === 'pedidos' && (
+                            <div className="animate-row">
+                                <div className="bg-white rounded-[2.5rem] shadow-xl p-6 sm:p-8 border border-slate-200">
+                                    <h2 className="text-lg font-black text-slate-800 uppercase mb-2">Caixa de Pedidos</h2>
+                                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-6">Reservas enviadas pelos clientes</p>
+                                    
+                                    {pedidosData.length === 0 ? (
+                                        <div className="text-center py-10 bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200">
+                                            <p className="text-sm font-bold text-slate-400 uppercase">Nenhum pedido novo no momento.</p>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-4">
+                                            {pedidosData.map((pedido) => (
+                                                <div key={pedido.id} className="bg-slate-50 p-5 rounded-3xl border border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                                                    <div>
+                                                        <h3 className="font-black text-slate-800 uppercase text-sm mb-1">{pedido.nome}</h3>
+                                                        <p className="text-xs font-semibold text-slate-500 mb-2">WhatsApp: <span className="text-slate-700">{pedido.telefone || 'Não informado'}</span></p>
+                                                        <div className="inline-block bg-green-100 text-green-800 px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest border border-green-200">
+                                                            Nºs desejados: {pedido.numeros}
+                                                        </div>
+                                                        <p className="text-[9px] text-slate-400 mt-2 font-bold">{pedido.data}</p>
+                                                    </div>
+                                                    <button onClick={() => removerPedido(pedido.id)} className="w-full sm:w-auto px-5 py-3 bg-red-100 text-red-600 hover:bg-red-200 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all">
+                                                        Apagar / Concluído
                                                     </button>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
-                        </div>
+                        )}
+
+                        {/* ---------------- ABA: LISTA OFICIAL (TODOS VÊEM) ---------------- */}
+                        {(!isAdmin || (isAdmin && adminTab === 'lista')) && (
+                            <div className="animate-row">
+                                
+                                {/* 1. FORMULÁRIO DE RESERVA DO CLIENTE */}
+                                {!isAdmin && (
+                                    <div className="bg-white rounded-[2.5rem] p-6 sm:p-8 mb-8 shadow-xl border border-slate-200">
+                                        <div className="flex items-center gap-3 mb-2">
+                                            <div className="bg-green-100 text-green-700 w-8 h-8 rounded-full flex items-center justify-center font-black">1</div>
+                                            <h2 className="text-lg font-black uppercase text-slate-800">Reserve seus números</h2>
+                                        </div>
+                                        <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-6 ml-11">Informe seus dados antes de pagar</p>
+                                        
+                                        {pedidoEnviado ? (
+                                            <div className="bg-green-50 border-2 border-green-500 rounded-3xl p-6 text-center animate-row">
+                                                <p className="text-green-700 font-black uppercase text-sm mb-2">Pedido Enviado com Sucesso!</p>
+                                                <p className="text-[10px] font-bold text-green-600 uppercase tracking-widest">Agora faça o pagamento abaixo e envie o comprovante.</p>
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-4">
+                                                <input type="text" placeholder="Seu Nome Completo" value={formNome} onChange={e => setFormNome(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 font-bold text-slate-700 outline-none focus:border-green-500 transition-all text-sm" />
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                                    <input type="tel" placeholder="Seu WhatsApp (Opcional)" value={formPhone} onChange={e => setFormPhone(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 font-bold text-slate-700 outline-none focus:border-green-500 transition-all text-sm" />
+                                                    <input type="text" placeholder="Nºs Desejados (Ex: 05, 12, 44)" value={formNumeros} onChange={e => setFormNumeros(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 font-bold text-slate-700 outline-none focus:border-green-500 transition-all text-sm" />
+                                                </div>
+                                                <button onClick={enviarReserva} className="w-full py-4 bg-green-600 hover:bg-green-700 text-white rounded-2xl font-black uppercase tracking-widest text-xs transition-all shadow-lg shadow-green-600/30 active:scale-95">
+                                                    Enviar Reserva para o Admin
+                                                </button>
+                                                <div className="bg-orange-50 rounded-xl p-4 border border-orange-100 mt-2">
+                                                    <p className="text-[9px] text-orange-800 font-black uppercase tracking-widest text-center leading-relaxed">
+                                                        ⚠️ O seu nome aparecerá na lista oficial abaixo após a confirmação do pagamento pelo Administrador.
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* 2. PAGAMENTO PIX */}
+                                <div className="pix-card text-white rounded-[2.5rem] p-6 sm:p-8 mb-8 shadow-2xl border border-slate-800">
+                                    <div className="flex items-center gap-3 mb-6">
+                                        {!isAdmin && <div className="bg-teal-500/20 text-teal-400 w-8 h-8 rounded-full flex items-center justify-center font-black border border-teal-500/30">2</div>}
+                                        <h2 className="text-xs font-black uppercase tracking-[0.2em] text-teal-400">Pagamento Inteligente</h2>
+                                    </div>
+                                    <p className="text-[10px] text-slate-500 font-bold uppercase mb-4 tracking-widest">Quantidade de números que vai pagar:</p>
+                                    <div className="grid grid-cols-5 gap-2 mb-8">
+                                        {[1, 2, 3, 4, 5].map(q => (
+                                            <button key={q} onClick={() => setPixQty(q)} className={`py-4 rounded-2xl font-black transition-all border-2 text-sm ${pixQty === q ? 'bg-teal-500 border-teal-300 text-white shadow-lg' : 'bg-slate-800 border-slate-700 text-slate-500'}`}>{q}</button>
+                                        ))}
+                                    </div>
+                                    <div className="flex flex-col sm:flex-row justify-between items-center sm:items-end gap-6 bg-slate-800 p-6 rounded-[2rem] border border-slate-700 mb-4">
+                                        <div className="text-center sm:text-left">
+                                            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-1">Valor Total</p>
+                                            <p className="text-4xl font-black text-white">R$ {pixQty * 20},00</p>
+                                        </div>
+                                        <button onClick={copyPix} className={`w-full sm:w-auto px-8 py-5 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all shadow-xl active:scale-95 ${copied ? 'bg-green-500' : 'bg-teal-500 hover:bg-teal-400'}`}>
+                                            {copied ? 'Código Copiado!' : 'Copiar Código PIX'}
+                                        </button>
+                                    </div>
+                                    <p className="text-[8px] text-center text-slate-500 font-bold uppercase tracking-[0.2em]">Copie o código acima e cole na área PIX do seu banco.</p>
+                                </div>
+
+                                {/* 3. PESQUISA E LISTA OFICIAL */}
+                                <div className="bg-white rounded-2xl shadow-sm p-4 mb-8 flex items-center gap-3 border border-slate-200">
+                                    <span className="text-lg">🔍</span>
+                                    <input type="text" placeholder="Procurar número ou nome..." className="w-full outline-none font-bold text-slate-600 text-sm placeholder:text-slate-300" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                                </div>
+
+                                <div className="bg-white rounded-[2rem] shadow-xl overflow-hidden border border-slate-200">
+                                    <div className="bg-slate-50 p-4 border-b border-slate-200 text-center">
+                                        <h3 className="text-xs font-black uppercase tracking-widest text-slate-600">Lista Oficial</h3>
+                                    </div>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-left">
+                                            <thead className="bg-white border-b text-[10px] uppercase font-black text-slate-400 tracking-tighter">
+                                                <tr>
+                                                    <th className="p-5 text-center w-16">Nº</th>
+                                                    <th className="p-5">Comprador</th>
+                                                    <th className="p-5">WhatsApp</th>
+                                                    <th className="p-5 text-center">Status</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100">
+                                                {filtered.map(item => (
+                                                    <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
+                                                        <td className="p-4 text-center">
+                                                            <span className="inline-flex w-9 h-9 rounded-full bg-green-50 text-green-700 items-center justify-center font-black text-sm border border-green-100">{item.id}</span>
+                                                        </td>
+                                                        <td className="p-4">
+                                                            <input disabled={!isAdmin} className={`w-full bg-transparent outline-none font-bold text-sm ${isAdmin ? 'border-b-2 border-dashed border-slate-200 focus:border-green-500 py-1' : item.nome ? 'text-slate-800 uppercase' : 'text-slate-300 italic font-normal'}`} value={item.nome} placeholder={isAdmin ? "Nome..." : "Disponível"} onChange={e => updateField(item.id, 'nome', e.target.value)} />
+                                                        </td>
+                                                        <td className="p-4">
+                                                            <input disabled={!isAdmin} className={`w-full bg-transparent outline-none text-xs font-semibold ${isAdmin ? 'border-b-2 border-dashed border-slate-200 py-1' : 'text-slate-500'}`} value={item.telefone} placeholder={isAdmin ? "Telemóvel..." : "-"} onChange={e => updateField(item.id, 'telefone', e.target.value)} />
+                                                        </td>
+                                                        <td className="p-4 text-center">
+                                                            <button onClick={() => toggleStatus(item.id)} className={`min-w-[85px] py-2.5 rounded-2xl text-[9px] font-black uppercase tracking-widest transition-all shadow-sm ${!item.nome ? 'bg-slate-50 text-slate-200 border border-transparent' : item.status === 'Pago' ? 'bg-green-500 text-white border border-green-600' : 'bg-orange-50 text-orange-600 border border-orange-200'}`}>
+                                                                {item.status}
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </main>
 
+                    {/* Modal Admin Login */}
                     {showModal && (
                         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-50 flex items-center justify-center p-6">
                             <div className="bg-white w-full max-w-sm rounded-[3rem] p-10 shadow-2xl animate-in zoom-in duration-200 border-t-8 border-green-600 text-center">
